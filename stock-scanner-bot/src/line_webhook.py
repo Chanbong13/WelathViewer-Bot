@@ -67,6 +67,8 @@ def handle_user_message(
     parsed = parser.parse(text)
     tickers = resolver.resolve(parsed)
 
+    if parsed.intent == "help":
+        return responses.help_menu()
     if parsed.intent == "watchlist_summary":
         return watchlists.summary(user_id)
     if parsed.intent == "watchlist_add" and tickers:

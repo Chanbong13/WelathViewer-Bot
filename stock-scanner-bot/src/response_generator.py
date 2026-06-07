@@ -98,6 +98,57 @@ class ResponseGenerator:
             ]
         )
 
+    @staticmethod
+    def help_menu() -> str:
+        return "\n".join(
+            [
+                "คำสั่งที่ใช้กับ WealthViewer Bot ได้",
+                "",
+                "1. สแกนหุ้นเต็ม",
+                "- NVDA",
+                "- Tesla",
+                "- วิเคราะห์ AAPL",
+                "",
+                "2. วิเคราะห์เทคนิค",
+                "- แนวรับแนวต้าน NVDA",
+                "- RSI AMD",
+                "- AAPL support resistance",
+                "",
+                "3. ข่าวหุ้น",
+                "- ข่าว TSLA วันนี้",
+                "- สรุปข่าว Microsoft",
+                "- PLTR news",
+                "",
+                "4. พื้นฐานหุ้น",
+                "- พื้นฐาน AAPL ดีไหม",
+                "- งบ NVDA เป็นยังไง",
+                "- revenue Tesla",
+                "",
+                "5. เปรียบเทียบหุ้น",
+                "- NVDA vs AMD",
+                "- เทียบ AAPL กับ MSFT",
+                "",
+                "6. สแกนกลุ่มหุ้น",
+                "- สแกน semiconductor",
+                "- หุ้น AI ตัวไหนน่าสนใจ",
+                "- หุ้น dividend",
+                "- healthcare / financial / cloud / software / momentum",
+                "",
+                "7. Watchlist",
+                "- เพิ่ม NVDA",
+                "- ลบ TSLA",
+                "- สรุป watchlist",
+                "",
+                "8. Price alert",
+                "- แจ้งเตือนถ้า NVDA ลงถึง 120",
+                "- แจ้งเตือนถ้า AAPL ทะลุ 220",
+                "",
+                "พิมพ์ ticker หรือชื่อบริษัทได้เลย เช่น NVDA, AAPL, Tesla",
+                "",
+                DISCLAIMER,
+            ]
+        )
+
     def technical_scan(self, ticker: str) -> str:
         report = self._analyze_ticker(ticker)
         technical = report["technical"]

@@ -23,3 +23,8 @@ def test_parse_sector_scan():
     parsed = IntentParser().parse("สแกนหุ้น semiconductor")
     assert parsed.intent == "sector_scan"
     assert parsed.sector == "semiconductor"
+
+
+def test_parse_help_command():
+    parsed = IntentParser().parse("help")
+    assert parsed.intent == "help"

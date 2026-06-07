@@ -19,6 +19,7 @@ class ParsedIntent:
 
 
 class IntentParser:
+    HELP_KEYWORDS = ["help", "command", "commands", "menu", "คำสั่ง", "ช่วย", "วิธีใช้", "ใช้งาน", "เมนู"]
     TECH_KEYWORDS = ["แนวรับ", "แนวต้าน", "กราฟ", "rsi", "macd", "support", "resistance", "technical", "จุดซื้อ", "stop"]
     NEWS_KEYWORDS = ["ข่าว", "news", "headline", "ล่าสุด", "today"]
     FUNDAMENTAL_KEYWORDS = ["พื้นฐาน", "งบ", "รายได้", "eps", "revenue", "fundamental", "margin", "valuation"]
@@ -46,6 +47,8 @@ class IntentParser:
         )
 
     def _detect_intent(self, normalized: str, tickers: list[str], sector: str | None) -> str:
+        if self._contains_any(normalized, self.HELP_KEYWORDS):
+            return "help"
         if self._contains_any(normalized, self.ALERT_KEYWORDS):
             return "price_alert"
         if self._contains_any(normalized, self.WATCHLIST_SUMMARY):
