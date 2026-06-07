@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: stock-scanner-bot
+    env: python
+    plan: free
+    rootDir: stock-scanner-bot
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///data/stock_scanner.db
+      - key: DEFAULT_LANGUAGE
+        value: th
+      - key: MAX_NEWS_ITEMS
+        value: "5"
+      - key: PRICE_HISTORY_PERIOD
+        value: 1y
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: ALPHA_VANTAGE_API_KEY
+        sync: false
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: NEWS_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

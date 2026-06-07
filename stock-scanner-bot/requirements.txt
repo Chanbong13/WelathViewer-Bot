@@ -1,0 +1,11 @@
+Flask>=3.0.3
+gunicorn>=23.0.0
+beautifulsoup4>=4.12.3
+feedparser>=6.0.11
+numpy>=1.26.4
+pandas>=2.2.2
+python-dotenv>=1.0.1
+requests>=2.32.3
+yfinance>=0.2.41
+Pillow>=10.4.0
+pytest>=8.3.2
