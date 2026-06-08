@@ -25,6 +25,9 @@ class ResponseGenerator:
 
     def stock_scan(self, ticker: str) -> str:
         report = self._analyze_ticker(ticker)
+        return self.stock_scan_from_report(report)
+
+    def stock_scan_from_report(self, report: dict) -> str:
         snapshot: StockSnapshot = report["snapshot"]
         technical = report["technical"]
         fundamental = report["fundamental"]

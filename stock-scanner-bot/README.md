@@ -79,6 +79,73 @@ POST /daily-report
 
 Use `/webhook` for LINE OA. `/line/webhook` is kept as a backward-compatible alias.
 
+## Agentic Workflow Pipeline
+
+Every user message now passes through a modular workflow before the bot replies:
+
+```text
+Receive message
+-> Detect intent
+-> Extract entities
+-> Create task plan
+-> Search sources
+-> Collect data
+-> Validate data
+-> Structure data
+-> Analyze data
+-> Draft answer
+-> Self-review / fact-check
+-> Revise if needed
+-> Format final response
+-> Reply to user
+-> Save NotebookLM-ready Markdown to Google Drive when configured
+```
+
+Mermaid view:
+
+```mermaid
+flowchart TD
+    A["User sends message"] --> B["Receive message"]
+    B --> C["Intent Detection"]
+    C --> D["Entity Extraction"]
+    D --> E["Task Planning"]
+    E --> F["Data Search"]
+    F --> G["Data Collection"]
+    G --> H["Data Validation"]
+    H --> I["Data Structuring"]
+    I --> J["Analysis Engine"]
+    J --> K["Answer Drafting"]
+    K --> L["Self-Review / Fact Check"]
+    L --> M{"Review Passed?"}
+    M -- "No" --> N["Revise Answer"]
+    N --> L
+    M -- "Yes" --> O["Final Formatting"]
+    O --> P["Reply to User"]
+    O --> Q["Save to Google Drive"]
+    Q --> R["NotebookLM Source"]
+```
+
+Pipeline modules:
+
+```text
+src/message_receiver.py
+src/intent_parser.py
+src/entity_extractor.py
+src/task_planner.py
+src/data_searcher.py
+src/data_collector.py
+src/data_validator.py
+src/data_structurer.py
+src/analysis_engine.py
+src/answer_reviewer.py
+src/final_formatter.py
+src/notebooklm_formatter.py
+src/google_drive_storage.py
+src/agentic_workflow.py
+```
+
+`answer_reviewer.py` checks whether the answer includes risks, avoids overconfident investment language, and includes a disclaimer. If the review fails, the workflow revises the answer before sending it.
+
 ## Install
 
 ```powershell

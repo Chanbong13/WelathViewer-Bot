@@ -10,6 +10,7 @@ import requests
 from flask import Flask, Response, request
 
 from config import Settings
+from src.agentic_workflow import AgenticWorkflow
 from src.alert_manager import AlertManager
 from src.daily_report import DailyReportService
 from src.database import Database
@@ -32,6 +33,7 @@ def create_app(settings: Settings) -> Flask:
     responses = ResponseGenerator(StockDataClient())
     watchlists = WatchlistManager(db)
     alerts = AlertManager(db)
+    workflow = AgenticWorkflow(settings, parser, resolver, responses, watchlists, alerts)
 
     @app.get("/health")
     def health() -> dict:
@@ -39,11 +41,11 @@ def create_app(settings: Settings) -> Flask:
 
     @app.post("/line/webhook")
     def line_webhook() -> Response:
-        return _handle_line_webhook(settings, parser, resolver, responses, watchlists, alerts)
+        return _handle_line_webhook(settings, workflow)
 
     @app.post("/webhook")
     def webhook() -> Response:
-        return _handle_line_webhook(settings, parser, resolver, responses, watchlists, alerts)
+        return _handle_line_webhook(settings, workflow)
 
     @app.post("/daily-report")
     def daily_report() -> tuple[dict, int]:
@@ -72,11 +74,7 @@ def create_app(settings: Settings) -> Flask:
 
 def _handle_line_webhook(
     settings: Settings,
-    parser: IntentParser,
-    resolver: TickerResolver,
-    responses: ResponseGenerator,
-    watchlists: WatchlistManager,
-    alerts: AlertManager,
+    workflow: AgenticWorkflow,
 ) -> Response:
     raw_body = request.get_data()
     if settings.line_channel_secret and not _valid_signature(settings.line_channel_secret, raw_body, request.headers.get("X-Line-Signature", "")):
@@ -89,7 +87,7 @@ def _handle_line_webhook(
         text = event["message"]["text"]
         user_id = event.get("source", {}).get("userId", "anonymous")
         reply_token = event.get("replyToken")
-        message = handle_user_message(text, user_id, parser, resolver, responses, watchlists, alerts)
+        message = workflow.run(user_id, text, platform="LINE").answer
         if reply_token:
             _reply(settings, reply_token, split_line_messages(message))
     return Response("ok", status=200)
