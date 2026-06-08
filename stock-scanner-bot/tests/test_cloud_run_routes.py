@@ -101,4 +101,45 @@ def test_daily_report_returns_partial_warnings(tmp_path, monkeypatch):
     response = client.post("/daily-report", json={}, headers={"X-Scheduler-Token": "secret-token"})
 
     assert response.status_code == 200
-    assert response.json["warnings"] == ["BAD: simulated provider failure"]
+    assert "BAD: simulated provider failure" in response.json["warnings"]
+    assert "Google Drive uploader is not configured." in response.json["warnings"]
+
+
+def test_daily_report_keeps_json_response_when_drive_upload_fails(tmp_path, monkeypatch):
+    pdf = tmp_path / "Global_Stock_Briefing_2026-06-08.pdf"
+    md = tmp_path / "NotebookLM_Source_Global_Stock_Briefing_2026-06-08.md"
+    csv = tmp_path / "Raw_Stock_Data_2026-06-08.csv"
+    for path in [pdf, md, csv]:
+        path.write_text("test", encoding="utf-8")
+
+    class FakeDailyReportService:
+        def __init__(self, settings, responses):
+            pass
+
+        def generate(self, report_date=None):
+            return {
+                "date": "2026-06-08",
+                "files": [pdf, md, csv],
+                "summary": "Market bias: Neutral | Top watch: NVDA",
+                "warnings": [],
+            }
+
+    class FailingGoogleDriveUploader:
+        is_configured = True
+
+        def __init__(self, settings):
+            pass
+
+        def upload_files(self, paths):
+            raise RuntimeError("drive permission denied")
+
+    monkeypatch.setattr("src.line_webhook.DailyReportService", FakeDailyReportService)
+    monkeypatch.setattr("src.line_webhook.GoogleDriveUploader", FailingGoogleDriveUploader)
+
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'test.db'}", scheduler_secret="secret-token")
+    client = create_app(settings).test_client()
+    response = client.post("/daily-report", json={}, headers={"X-Scheduler-Token": "secret-token"})
+
+    assert response.status_code == 200
+    assert response.json["drive_links"] == {}
+    assert "Google Drive upload failed" in response.json["warnings"][0]

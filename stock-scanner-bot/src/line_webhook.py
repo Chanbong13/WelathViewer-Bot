@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import hmac
 import json
+import logging
 
 import requests
 from flask import Flask, Response, request
@@ -22,6 +23,7 @@ from src.ticker_resolver import TickerResolver
 from src.watchlist_manager import WatchlistManager
 
 
+logger = logging.getLogger(__name__)
 LINE_REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply"
 LINE_PUSH_ENDPOINT = "https://api.line.me/v2/bot/message/push"
 
@@ -61,17 +63,29 @@ def create_app(settings: Settings) -> Flask:
         payload = request.get_json(force=True, silent=True) or {}
         report_date = payload.get("date")
         service = DailyReportService(settings, responses)
-        result = service.generate(_parse_date(report_date) if report_date else None)
+        try:
+            result = service.generate(_parse_date(report_date) if report_date else None)
+        except Exception as exc:
+            logger.exception("Daily report generation failed")
+            return {"status": "error", "stage": "generate_report", "error": str(exc)}, 500
         upload_links = {}
+        warnings = list(result.get("warnings", []))
         uploader = GoogleDriveUploader(settings)
         if uploader.is_configured:
-            upload_links = uploader.upload_files(result["files"])
+            try:
+                upload_links = uploader.upload_files(result["files"])
+            except Exception as exc:
+                logger.exception("Daily report Google Drive upload failed")
+                warnings.append(f"Google Drive upload failed: {exc}")
+        else:
+            warnings.append("Google Drive uploader is not configured.")
         line_sent = False
         line_error = ""
         if settings.default_line_user_id:
             if settings.line_channel_access_token:
                 try:
-                    _push_line_message(settings, settings.default_line_user_id, _daily_report_line_summary(result, upload_links))
+                    line_result = {**result, "warnings": warnings}
+                    _push_line_message(settings, settings.default_line_user_id, _daily_report_line_summary(line_result, upload_links))
                     line_sent = True
                 except Exception as exc:
                     line_error = str(exc)
@@ -81,7 +95,7 @@ def create_app(settings: Settings) -> Flask:
             "status": "ok",
             "date": result["date"],
             "summary": result["summary"],
-            "warnings": result.get("warnings", []),
+            "warnings": warnings,
             "files": [path.name for path in result["files"]],
             "drive_links": upload_links,
             "line_sent": line_sent,
