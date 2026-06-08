@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -19,7 +20,7 @@ class GoogleDriveUploader:
 
     @property
     def is_configured(self) -> bool:
-        has_credentials = bool(self.settings.google_application_credentials_json or self.settings.google_service_account_file)
+        has_credentials = bool(self._has_oauth_credentials or self.settings.google_application_credentials_json or self.settings.google_service_account_file)
         return bool(has_credentials and self.settings.google_drive_folder_id)
 
     def upload_files(self, paths: list[Path]) -> dict[str, str]:
@@ -36,10 +37,23 @@ class GoogleDriveUploader:
         return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
     def _credentials(self):
+        if self._has_oauth_credentials:
+            return Credentials(
+                token=None,
+                refresh_token=self.settings.google_refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=self.settings.google_client_id,
+                client_secret=self.settings.google_client_secret,
+                scopes=DRIVE_SCOPE,
+            )
         if self.settings.google_application_credentials_json:
             info = json.loads(self.settings.google_application_credentials_json)
             return service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPE)
         return service_account.Credentials.from_service_account_file(self.settings.google_service_account_file, scopes=DRIVE_SCOPE)
+
+    @property
+    def _has_oauth_credentials(self) -> bool:
+        return bool(self.settings.google_client_id and self.settings.google_client_secret and self.settings.google_refresh_token)
 
     def _upload_file(self, service, path: Path) -> str:
         metadata = {"name": path.name, "parents": [self.settings.google_drive_folder_id]}

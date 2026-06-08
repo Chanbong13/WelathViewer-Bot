@@ -174,6 +174,9 @@ LINE_CHANNEL_SECRET=
 DATABASE_URL=sqlite:///data/stock_scanner.db
 OPENAI_API_KEY=
 GOOGLE_DRIVE_FOLDER_ID=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN=
 GOOGLE_APPLICATION_CREDENTIALS_JSON=
 GOOGLE_SERVICE_ACCOUNT_FILE=
 SCHEDULER_SECRET=
@@ -194,6 +197,26 @@ PRICE_HISTORY_PERIOD=1y
 The current implementation works with Yahoo Finance via `yfinance` and RSS feeds. Finnhub, Alpha Vantage, Polygon, NewsAPI, and OpenAI keys are reserved for extending data quality and AI summarization.
 
 ## Google Drive Service Account Setup
+
+Recommended for a personal Google Drive folder:
+
+Use OAuth credentials with your own Google account. This lets the bot upload into a folder in your My Drive.
+
+Set these Cloud Run secrets:
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN=
+```
+
+Then deploy with:
+
+```bash
+--set-secrets GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,GOOGLE_REFRESH_TOKEN=GOOGLE_REFRESH_TOKEN:latest
+```
+
+Service account setup is still supported, but service accounts cannot upload into a personal My Drive because they do not have personal storage quota. Use a Shared Drive for service-account uploads.
 
 1. In Google Cloud Console, enable Google Drive API.
 2. Create a service account.
@@ -333,7 +356,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --region "$REGION" \
   --allow-unauthenticated \
   --env-vars-file cloudrun-env.yaml \
-  --set-secrets LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,GOOGLE_APPLICATION_CREDENTIALS_JSON=GOOGLE_APPLICATION_CREDENTIALS_JSON:latest,SCHEDULER_SECRET=SCHEDULER_SECRET:latest
+  --set-secrets LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,GOOGLE_REFRESH_TOKEN=GOOGLE_REFRESH_TOKEN:latest,SCHEDULER_SECRET=SCHEDULER_SECRET:latest
 ```
 
 Notes:
