@@ -81,6 +81,7 @@ def create_app(settings: Settings) -> Flask:
             "status": "ok",
             "date": result["date"],
             "summary": result["summary"],
+            "warnings": result.get("warnings", []),
             "files": [path.name for path in result["files"]],
             "drive_links": upload_links,
             "line_sent": line_sent,
@@ -209,6 +210,8 @@ def _valid_scheduler_token(settings: Settings, authorization: str, scheduler_tok
 def _daily_report_line_summary(result: dict, drive_links: dict[str, str]) -> str:
     file_links = "\n".join(f"- {name}: {url}" for name, url in drive_links.items() if name != "folder")
     folder_link = drive_links.get("folder", "Google Drive link unavailable")
+    warnings = result.get("warnings") or []
+    warning_text = "\n".join(f"- {warning}" for warning in warnings[:5]) if warnings else "- None"
     return "\n".join(
         [
             f"Daily Global Stock Briefing - {result['date']}",
@@ -220,6 +223,9 @@ def _daily_report_line_summary(result: dict, drive_links: dict[str, str]) -> str
             "",
             "Files:",
             file_links or "- Upload skipped or Google Drive not configured",
+            "",
+            "Data limitations:",
+            warning_text,
             "",
             "NotebookLM source:",
             f"Use NotebookLM_Source_Global_Stock_Briefing_{result['date']}.md from Google Drive.",

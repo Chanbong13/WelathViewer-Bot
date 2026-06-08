@@ -11,4 +11,5 @@ reportlab>=4.2.2
 requests>=2.32.3
 yfinance>=0.2.41
 Pillow>=10.4.0
+tzdata>=2025.2
 pytest>=8.3.2

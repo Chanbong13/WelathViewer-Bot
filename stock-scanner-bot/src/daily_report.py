@@ -4,7 +4,7 @@ import csv
 import datetime as dt
 import tempfile
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -21,14 +21,14 @@ class DailyReportService:
         self.responses = responses or ResponseGenerator()
 
     def generate(self, report_date: dt.date | None = None) -> dict:
-        report_date = report_date or dt.datetime.now(ZoneInfo(self.settings.timezone)).date()
+        report_date = report_date or self._today()
         date_text = report_date.isoformat()
-        reports = [self.responses._analyze_ticker(ticker) for ticker in self.settings.daily_report_tickers]
+        reports, warnings = self._collect_reports()
         output_dir = Path(tempfile.mkdtemp(prefix="stock-scanner-report-"))
         markdown_path = output_dir / f"{self.settings.notebooklm_source_prefix}_{date_text}.md"
         pdf_path = output_dir / f"{self.settings.pdf_report_prefix}_{date_text}.pdf"
         csv_path = output_dir / f"{self.settings.csv_report_prefix}_{date_text}.csv"
-        self._write_markdown(markdown_path, date_text, reports)
+        self._write_markdown(markdown_path, date_text, reports, warnings)
         self._write_csv(csv_path, reports)
         self._write_pdf(pdf_path, date_text, reports)
         return {
@@ -38,9 +38,28 @@ class DailyReportService:
             "markdown": markdown_path,
             "csv": csv_path,
             "summary": self._summary(reports),
+            "warnings": warnings,
         }
 
-    def _write_markdown(self, path: Path, date_text: str, reports: list[dict]) -> None:
+    def _collect_reports(self) -> tuple[list[dict], list[str]]:
+        reports = []
+        warnings = []
+        for ticker in self.settings.daily_report_tickers:
+            try:
+                reports.append(self.responses._analyze_ticker(ticker))
+            except Exception as exc:
+                warnings.append(f"{ticker}: {exc}")
+        if not reports:
+            warnings.append("No ticker reports were generated. Check market data provider access and ticker configuration.")
+        return reports, warnings
+
+    def _today(self) -> dt.date:
+        try:
+            return dt.datetime.now(ZoneInfo(self.settings.timezone)).date()
+        except ZoneInfoNotFoundError:
+            return dt.datetime.now(dt.timezone.utc).date()
+
+    def _write_markdown(self, path: Path, date_text: str, reports: list[dict], warnings: list[str]) -> None:
         source_index = self._source_index(reports)
         lines = [
             f"# Global Stock Briefing - {date_text}",
@@ -59,6 +78,9 @@ class DailyReportService:
             "- Ask by ticker, sector, risk level, technical trend, source ID, or action label.",
             "- Ask NotebookLM to cite `S###` source IDs from the Final Source Index.",
             "- Use ticker-level sections for direct stock questions.",
+            "",
+            "## Data Limitations",
+            *(self._warning_lines(warnings)),
             "",
             "## Market Overview",
             f"- Market bias: {self._market_bias(reports)}",
@@ -100,6 +122,12 @@ class DailyReportService:
                     ]
                 )
         path.write_text("\n".join(lines), encoding="utf-8")
+
+    @staticmethod
+    def _warning_lines(warnings: list[str]) -> list[str]:
+        if not warnings:
+            return ["- No critical data collection limitations were reported."]
+        return [f"- {warning}" for warning in warnings]
 
     def _ticker_markdown(self, report: dict, source_index: list[tuple]) -> list[str]:
         snapshot = report["snapshot"]
