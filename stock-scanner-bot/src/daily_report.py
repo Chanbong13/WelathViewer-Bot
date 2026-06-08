@@ -4,6 +4,7 @@ import csv
 import datetime as dt
 import tempfile
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -20,7 +21,7 @@ class DailyReportService:
         self.responses = responses or ResponseGenerator()
 
     def generate(self, report_date: dt.date | None = None) -> dict:
-        report_date = report_date or dt.date.today()
+        report_date = report_date or dt.datetime.now(ZoneInfo(self.settings.timezone)).date()
         date_text = report_date.isoformat()
         reports = [self.responses._analyze_ticker(ticker) for ticker in self.settings.daily_report_tickers]
         output_dir = Path(tempfile.mkdtemp(prefix="stock-scanner-report-"))
@@ -42,11 +43,15 @@ class DailyReportService:
     def _write_markdown(self, path: Path, date_text: str, reports: list[dict]) -> None:
         source_index = self._source_index(reports)
         lines = [
-            f"# Daily Global Stock Briefing - {date_text}",
+            f"# Global Stock Briefing - {date_text}",
+            "",
+            "## Date",
+            date_text,
             "",
             "Document type: NotebookLM source file",
             "Runtime: Google Cloud Run",
             "Storage: Google Drive",
+            f"Timezone: {self.settings.timezone}",
             "",
             f"Disclaimer: {DISCLAIMER}",
             "",
@@ -55,10 +60,19 @@ class DailyReportService:
             "- Ask NotebookLM to cite `S###` source IDs from the Final Source Index.",
             "- Use ticker-level sections for direct stock questions.",
             "",
-            "## Executive Summary",
+            "## Market Overview",
             f"- Market bias: {self._market_bias(reports)}",
             f"- Tickers covered: {', '.join(report['snapshot'].ticker for report in reports)}",
             f"- Top watchlist candidates: {', '.join(self._top_tickers(reports))}",
+            "",
+            "## Sector Summary",
+            *self._sector_summary_lines(reports),
+            "",
+            "## Watchlist Table",
+            "",
+            "| Ticker | Company | Sector | Trend | Risk | Score | Action |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+            *self._watchlist_rows(reports),
             "",
             "## Ticker Coverage Map",
         ]
@@ -66,7 +80,7 @@ class DailyReportService:
             snapshot = report["snapshot"]
             lines.append(f"- {snapshot.ticker}: {snapshot.company_name} | Sector: {snapshot.sector} | Risk: {report['risk_level']} | Score: {report['score']['overall_score']}")
 
-        lines.extend(["", "## Ticker-Level Analysis", ""])
+        lines.extend(["", "## Individual Ticker Analysis", ""])
         for report in reports:
             lines.extend(self._ticker_markdown(report, source_index))
 
@@ -126,12 +140,22 @@ class DailyReportService:
             "#### Fundamental Analysis",
             f"- Revenue growth: {fundamental['revenue_growth']}",
             f"- EPS growth: {fundamental['eps_growth']}",
+            f"- P/E ratio: {fundamental['pe_ratio']}",
+            f"- Gross margin: {fundamental['gross_margin']}",
+            f"- Operating margin: {fundamental['operating_margin']}",
+            f"- Free cash flow: {fundamental['free_cash_flow']}",
+            f"- Debt level: {fundamental['debt_level']}",
             f"- Valuation view: {fundamental['valuation_view']}",
             f"- Fundamental score: {fundamental['fundamental_score']}",
             "",
-            "#### News Sentiment And Risks",
+            "#### News Summary",
+            *self._ticker_news_lines(report, source_ids),
+            "",
+            "#### Risk Factors",
             f"- News sentiment: {sentiment['label']} ({sentiment['score']}/100)",
             f"- Risk level: {report['risk_level']}",
+            f"- Bullish factors: {'; '.join(sentiment['bullish_points']) if sentiment['bullish_points'] else 'No clear bullish news signal collected.'}",
+            f"- Bearish factors: {'; '.join(sentiment['bearish_points']) if sentiment['bearish_points'] else 'No clear bearish news signal collected.'}",
             f"- Overall score: {score['overall_score']} / 100 = {score['label']}",
             f"- Action label: {self.responses._action(report)}",
             "",
@@ -220,6 +244,41 @@ class DailyReportService:
                 index.append((f"S{counter:03d}", item, ticker))
                 counter += 1
         return index
+
+    def _watchlist_rows(self, reports: list[dict]) -> list[str]:
+        rows = []
+        for report in reports:
+            snapshot = report["snapshot"]
+            rows.append(
+                f"| {snapshot.ticker} | {snapshot.company_name} | {snapshot.sector} | {report['technical']['trend']} | {report['risk_level']} | {report['score']['overall_score']} | {self.responses._action(report)} |"
+            )
+        return rows
+
+    @staticmethod
+    def _sector_summary_lines(reports: list[dict]) -> list[str]:
+        if not reports:
+            return ["- No ticker data collected."]
+        sectors: dict[str, list[dict]] = {}
+        for report in reports:
+            sectors.setdefault(report["snapshot"].sector or "Unknown", []).append(report)
+        lines = []
+        for sector, sector_reports in sorted(sectors.items()):
+            avg_score = sum(report["score"]["overall_score"] for report in sector_reports) / len(sector_reports)
+            tickers = ", ".join(report["snapshot"].ticker for report in sector_reports)
+            risk_mix = ", ".join(sorted({report["risk_level"] for report in sector_reports}))
+            lines.append(f"- {sector}: {tickers} | Average score: {avg_score:.1f} | Risk mix: {risk_mix}")
+        return lines
+
+    @staticmethod
+    def _ticker_news_lines(report: dict, source_ids: list[str]) -> list[str]:
+        news_items = report.get("news") or []
+        if not news_items:
+            return ["- No recent news source URL was collected for this ticker."]
+        lines = []
+        for index, item in enumerate(news_items[:5]):
+            source_id = source_ids[index] if index < len(source_ids) else "Unindexed"
+            lines.append(f"- [{source_id}] {item.title} | {item.source} | {item.url}")
+        return lines
 
     @staticmethod
     def _market_bias(reports: list[dict]) -> str:

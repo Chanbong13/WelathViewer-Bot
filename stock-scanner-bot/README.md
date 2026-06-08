@@ -176,11 +176,14 @@ OPENAI_API_KEY=
 GOOGLE_DRIVE_FOLDER_ID=
 GOOGLE_APPLICATION_CREDENTIALS_JSON=
 GOOGLE_SERVICE_ACCOUNT_FILE=
+SCHEDULER_SECRET=
 DAILY_REPORT_TOKEN=
+DEFAULT_LINE_USER_ID=
+TIMEZONE=Asia/Bangkok
 DAILY_REPORT_TICKERS=NVDA,MSFT,AAPL,GOOGL,AMZN,META,TSLA,AVGO,AMD,COST,JPM,LLY
 NOTEBOOKLM_SOURCE_PREFIX=NotebookLM_Source_Global_Stock_Briefing
 PDF_REPORT_PREFIX=Global_Stock_Briefing
-CSV_REPORT_PREFIX=Global_Stock_Briefing_Data
+CSV_REPORT_PREFIX=Raw_Stock_Data
 APP_HOST=0.0.0.0
 APP_PORT=8000
 DEFAULT_LANGUAGE=th
@@ -300,18 +303,34 @@ Deploy from the `stock-scanner-bot` directory:
 
 ```bash
 cd stock-scanner-bot
+
+cat > cloudrun-env.yaml <<'EOF'
+DEFAULT_LANGUAGE: "th"
+MAX_NEWS_ITEMS: "5"
+PRICE_HISTORY_PERIOD: "1y"
+DATABASE_URL: "sqlite:////tmp/stock_scanner.db"
+GOOGLE_DRIVE_FOLDER_ID: "YOUR_FOLDER_ID"
+DEFAULT_LINE_USER_ID: "YOUR_LINE_USER_ID"
+TIMEZONE: "Asia/Bangkok"
+DAILY_REPORT_TICKERS: "NVDA,MSFT,AAPL,GOOGL,AMZN,META,TSLA,AVGO,AMD,COST,JPM,LLY"
+NOTEBOOKLM_SOURCE_PREFIX: "NotebookLM_Source_Global_Stock_Briefing"
+PDF_REPORT_PREFIX: "Global_Stock_Briefing"
+CSV_REPORT_PREFIX: "Raw_Stock_Data"
+EOF
+
 gcloud run deploy "$SERVICE_NAME" \
   --source . \
   --region "$REGION" \
   --allow-unauthenticated \
-  --set-env-vars DEFAULT_LANGUAGE=th,MAX_NEWS_ITEMS=5,PRICE_HISTORY_PERIOD=1y,DATABASE_URL=sqlite:////tmp/stock_scanner.db,GOOGLE_DRIVE_FOLDER_ID=YOUR_FOLDER_ID,DAILY_REPORT_TICKERS=NVDA,MSFT,AAPL,GOOGL,AMZN,META,TSLA,AVGO,AMD,COST,JPM,LLY \
-  --set-secrets LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,GOOGLE_APPLICATION_CREDENTIALS_JSON=GOOGLE_APPLICATION_CREDENTIALS_JSON:latest,DAILY_REPORT_TOKEN=DAILY_REPORT_TOKEN:latest
+  --env-vars-file cloudrun-env.yaml \
+  --set-secrets LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,GOOGLE_APPLICATION_CREDENTIALS_JSON=GOOGLE_APPLICATION_CREDENTIALS_JSON:latest,SCHEDULER_SECRET=SCHEDULER_SECRET:latest
 ```
 
 Notes:
 
 - `--allow-unauthenticated` is needed because LINE must reach `/webhook`.
-- Keep `DAILY_REPORT_TOKEN` secret. Cloud Scheduler sends it to `/daily-report`.
+- Keep `SCHEDULER_SECRET` secret. Cloud Scheduler sends it in the `X-Scheduler-Token` header to `/daily-report`.
+- `DEFAULT_LINE_USER_ID` is the LINE user ID that receives the morning summary.
 - For durable user watchlists, replace SQLite with Cloud SQL or Firestore later. SQLite in `/tmp` is ephemeral on Cloud Run.
 
 Get service URL:
@@ -329,6 +348,16 @@ https://YOUR-CLOUD-RUN-URL/webhook
 ```
 
 ### Cloud Scheduler Daily Report
+
+The `/daily-report` endpoint:
+
+- Verifies the `X-Scheduler-Token` header against `SCHEDULER_SECRET`.
+- Loads predefined tickers from `DAILY_REPORT_TICKERS`.
+- Fetches stock prices, news, technical indicators, and fundamentals.
+- Generates PDF, Markdown, and CSV files.
+- Uploads all generated files to Google Drive.
+- Sends a short LINE summary to `DEFAULT_LINE_USER_ID`.
+- Returns JSON with status, date, filenames, Drive links, and LINE delivery status.
 
 Create a scheduler service account:
 
@@ -357,20 +386,77 @@ gcloud scheduler jobs create http daily-stock-report \
   --time-zone "Asia/Bangkok" \
   --uri "$SERVICE_URL/daily-report" \
   --http-method POST \
-  --headers "Content-Type=application/json,X-Daily-Report-Token=YOUR_DAILY_REPORT_TOKEN" \
+  --headers "Content-Type=application/json,X-Scheduler-Token=YOUR_SCHEDULER_SECRET" \
   --message-body "{}" \
   --oidc-service-account-email "stock-report-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 ```
+
+Optional production security:
+
+- Keep `--oidc-service-account-email` enabled for Cloud Scheduler.
+- Restrict Cloud Run ingress/IAM for private internal services when LINE webhook routing is separated.
+- If this same Cloud Run service also receives LINE webhooks, `/webhook` still needs to be reachable by LINE, so keep the secret header check on `/daily-report`.
 
 The `/daily-report` endpoint generates:
 
 ```text
 Global_Stock_Briefing_YYYY-MM-DD.pdf
 NotebookLM_Source_Global_Stock_Briefing_YYYY-MM-DD.md
-Global_Stock_Briefing_Data_YYYY-MM-DD.csv
+Raw_Stock_Data_YYYY-MM-DD.csv
 ```
 
 It uploads all three files to Google Drive. The Markdown is structured for NotebookLM with ticker-level headings, sector labels, source IDs, and a final source index.
+
+Test the job manually:
+
+```bash
+gcloud scheduler jobs run daily-stock-report --location "$REGION"
+```
+
+Or test the endpoint directly:
+
+```bash
+curl -X POST "$SERVICE_URL/daily-report" \
+  -H "Content-Type: application/json" \
+  -H "X-Scheduler-Token: YOUR_SCHEDULER_SECRET" \
+  -d "{}"
+```
+
+## NotebookLM Source Workflow
+
+Google Drive is the source storage layer. Google Cloud Run generates the source files and uploads them to Drive; NotebookLM then imports those files from Drive.
+
+Recommended setup:
+
+```text
+Notebook name: Global Stock Market Intelligence Hub
+Google Drive folder: AI_Stock_Briefing_NotebookLM
+Daily source file: NotebookLM_Source_Global_Stock_Briefing_YYYY-MM-DD.md
+Backup source file: Global_Stock_Briefing_YYYY-MM-DD.pdf
+Raw data file: Raw_Stock_Data_YYYY-MM-DD.csv
+```
+
+NotebookLM import flow:
+
+1. Open NotebookLM.
+2. Create or open `Global Stock Market Intelligence Hub`.
+3. Add source from Google Drive.
+4. Choose `NotebookLM_Source_Global_Stock_Briefing_YYYY-MM-DD.md`.
+5. Optionally add the PDF report for a reader-friendly backup.
+
+The Markdown source is optimized for NotebookLM with:
+
+- Title
+- Date
+- Market overview
+- Sector summary
+- Watchlist table
+- Individual ticker analysis
+- Technical analysis
+- Fundamental analysis
+- News summary
+- Risk factors
+- Source index
 
 ## Supported Messages
 
