@@ -44,7 +44,7 @@ class GoogleDriveUploader:
     def _upload_file(self, service, path: Path) -> str:
         metadata = {"name": path.name, "parents": [self.settings.google_drive_folder_id]}
         media = MediaFileUpload(str(path), mimetype=self._mime_type(path), resumable=True)
-        uploaded = service.files().create(body=metadata, media_body=media, fields="id, webViewLink").execute()
+        uploaded = service.files().create(body=metadata, media_body=media, fields="id, webViewLink", supportsAllDrives=True).execute()
         return uploaded.get("webViewLink", f"https://drive.google.com/file/d/{uploaded['id']}/view")
 
     @staticmethod

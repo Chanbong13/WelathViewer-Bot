@@ -198,20 +198,28 @@ The current implementation works with Yahoo Finance via `yfinance` and RSS feeds
 1. In Google Cloud Console, enable Google Drive API.
 2. Create a service account.
 3. Create a JSON key for that service account.
-4. Open the target Google Drive folder.
-5. Share that folder with the service account email, such as:
+4. Create a Google Shared Drive for automated reports, for example:
+
+```text
+AI_Stock_Briefing_NotebookLM
+```
+
+Service accounts do not have personal My Drive storage quota. Use a Shared Drive, or use OAuth user delegation if you must upload into a user's My Drive.
+
+5. Inside that Shared Drive, create or open the target folder.
+6. Share the Shared Drive or folder with the service account email as Content manager or Editor, such as:
 
 ```text
 stock-bot-uploader@your-project.iam.gserviceaccount.com
 ```
 
-6. Copy the Drive folder ID from the folder URL:
+7. Copy the Drive folder ID from the folder URL:
 
 ```text
 https://drive.google.com/drive/folders/FOLDER_ID_HERE
 ```
 
-7. Set environment variables in Cloud Run:
+8. Set environment variables in Cloud Run:
 
 ```env
 GOOGLE_DRIVE_FOLDER_ID=FOLDER_ID_HERE
@@ -225,6 +233,8 @@ GOOGLE_SERVICE_ACCOUNT_FILE=/secrets/service-account.json
 ```
 
 For Cloud Run, `GOOGLE_APPLICATION_CREDENTIALS_JSON` is usually the simplest route. Store it as a Secret Manager secret when possible, then mount it as an environment variable.
+
+If upload returns `Service Accounts do not have storage quota`, the folder is in a personal My Drive. Move the folder to a Shared Drive and update `GOOGLE_DRIVE_FOLDER_ID`.
 
 ## Set Up LINE Messaging API
 
