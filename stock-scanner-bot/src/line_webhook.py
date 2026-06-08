@@ -218,7 +218,11 @@ def _valid_scheduler_token(settings: Settings, authorization: str, scheduler_tok
     if not expected:
         return True
     bearer = authorization.replace("Bearer ", "", 1).strip() if authorization.startswith("Bearer ") else ""
-    return any(hmac.compare_digest(expected, token) for token in [scheduler_token, legacy_token, bearer] if token)
+    return any(_safe_token_compare(expected, token) for token in [scheduler_token, legacy_token, bearer] if token)
+
+
+def _safe_token_compare(expected: str, provided: str) -> bool:
+    return hmac.compare_digest(expected.encode("utf-8"), provided.encode("utf-8"))
 
 
 def _daily_report_line_summary(result: dict, drive_links: dict[str, str]) -> str:

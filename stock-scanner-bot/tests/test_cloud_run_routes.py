@@ -27,6 +27,14 @@ def test_daily_report_requires_token_when_configured(tmp_path):
     assert response.status_code == 401
 
 
+def test_daily_report_rejects_non_ascii_wrong_scheduler_token_without_500(tmp_path):
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'test.db'}", scheduler_secret="secret-token")
+    client = create_app(settings).test_client()
+    response = client.post("/daily-report", json={}, headers={"X-Scheduler-Token": "ใส่รหัสลับจริงของคุณ"})
+    assert response.status_code == 401
+    assert response.json["error"] == "unauthorized"
+
+
 def test_daily_report_accepts_scheduler_token_and_returns_links(tmp_path, monkeypatch):
     pdf = tmp_path / "Global_Stock_Briefing_2026-06-08.pdf"
     md = tmp_path / "NotebookLM_Source_Global_Stock_Briefing_2026-06-08.md"
