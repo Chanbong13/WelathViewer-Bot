@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -10,7 +11,9 @@ from flask import Flask, Response, request
 
 from config import Settings
 from src.alert_manager import AlertManager
+from src.daily_report import DailyReportService
 from src.database import Database
+from src.google_drive_uploader import GoogleDriveUploader
 from src.intent_parser import IntentParser
 from src.response_generator import ResponseGenerator
 from src.stock_data import StockDataClient
@@ -32,27 +35,64 @@ def create_app(settings: Settings) -> Flask:
 
     @app.get("/health")
     def health() -> dict:
-        return {"status": "ok"}
+        return {"status": "ok", "runtime": "cloud-run-ready"}
 
     @app.post("/line/webhook")
     def line_webhook() -> Response:
-        raw_body = request.get_data()
-        if settings.line_channel_secret and not _valid_signature(settings.line_channel_secret, raw_body, request.headers.get("X-Line-Signature", "")):
-            return Response("invalid signature", status=403)
+        return _handle_line_webhook(settings, parser, resolver, responses, watchlists, alerts)
+
+    @app.post("/webhook")
+    def webhook() -> Response:
+        return _handle_line_webhook(settings, parser, resolver, responses, watchlists, alerts)
+
+    @app.post("/daily-report")
+    def daily_report() -> tuple[dict, int]:
+        if not _valid_daily_report_token(settings, request.headers.get("Authorization", ""), request.headers.get("X-Daily-Report-Token", "")):
+            return {"error": "unauthorized"}, 401
 
         payload = request.get_json(force=True, silent=True) or {}
-        for event in payload.get("events", []):
-            if event.get("type") != "message" or event.get("message", {}).get("type") != "text":
-                continue
-            text = event["message"]["text"]
-            user_id = event.get("source", {}).get("userId", "anonymous")
-            reply_token = event.get("replyToken")
-            message = handle_user_message(text, user_id, parser, resolver, responses, watchlists, alerts)
-            if reply_token:
-                _reply(settings, reply_token, split_line_messages(message))
-        return Response("ok", status=200)
+        report_date = payload.get("date")
+        service = DailyReportService(settings, responses)
+        result = service.generate(_parse_date(report_date) if report_date else None)
+        upload_links = {}
+        uploader = GoogleDriveUploader(settings)
+        if uploader.is_configured:
+            upload_links = uploader.upload_files(result["files"])
+        return {
+            "status": "ok",
+            "date": result["date"],
+            "summary": result["summary"],
+            "files": [path.name for path in result["files"]],
+            "drive_links": upload_links,
+            "notebooklm_ready": True,
+        }, 200
 
     return app
+
+
+def _handle_line_webhook(
+    settings: Settings,
+    parser: IntentParser,
+    resolver: TickerResolver,
+    responses: ResponseGenerator,
+    watchlists: WatchlistManager,
+    alerts: AlertManager,
+) -> Response:
+    raw_body = request.get_data()
+    if settings.line_channel_secret and not _valid_signature(settings.line_channel_secret, raw_body, request.headers.get("X-Line-Signature", "")):
+        return Response("invalid signature", status=403)
+
+    payload = request.get_json(force=True, silent=True) or {}
+    for event in payload.get("events", []):
+        if event.get("type") != "message" or event.get("message", {}).get("type") != "text":
+            continue
+        text = event["message"]["text"]
+        user_id = event.get("source", {}).get("userId", "anonymous")
+        reply_token = event.get("replyToken")
+        message = handle_user_message(text, user_id, parser, resolver, responses, watchlists, alerts)
+        if reply_token:
+            _reply(settings, reply_token, split_line_messages(message))
+    return Response("ok", status=200)
 
 
 def handle_user_message(
@@ -127,3 +167,15 @@ def _valid_signature(secret: str, body: bytes, signature: str) -> bool:
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
     expected = base64.b64encode(digest).decode("utf-8")
     return hmac.compare_digest(expected, signature)
+
+
+def _valid_daily_report_token(settings: Settings, authorization: str, header_token: str) -> bool:
+    if not settings.daily_report_token:
+        return True
+    expected = settings.daily_report_token
+    bearer = authorization.replace("Bearer ", "", 1).strip() if authorization.startswith("Bearer ") else ""
+    return hmac.compare_digest(expected, header_token) or hmac.compare_digest(expected, bearer)
+
+
+def _parse_date(value: str) -> dt.date:
+    return dt.date.fromisoformat(value)

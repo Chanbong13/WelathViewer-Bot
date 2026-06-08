@@ -21,11 +21,23 @@ class Settings:
     line_channel_secret: str = os.getenv("LINE_CHANNEL_SECRET", "")
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///data/stock_scanner.db")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    google_drive_folder_id: str = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+    google_application_credentials_json: str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", "")
+    google_service_account_file: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")
+    daily_report_token: str = os.getenv("DAILY_REPORT_TOKEN", "")
+    daily_report_tickers: list[str] = None
+    notebooklm_source_prefix: str = os.getenv("NOTEBOOKLM_SOURCE_PREFIX", "NotebookLM_Source_Global_Stock_Briefing")
+    pdf_report_prefix: str = os.getenv("PDF_REPORT_PREFIX", "Global_Stock_Briefing")
+    csv_report_prefix: str = os.getenv("CSV_REPORT_PREFIX", "Global_Stock_Briefing_Data")
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = int(os.getenv("APP_PORT", "8000"))
     default_language: str = os.getenv("DEFAULT_LANGUAGE", "th")
     max_news_items: int = int(os.getenv("MAX_NEWS_ITEMS", "5"))
     price_history_period: str = os.getenv("PRICE_HISTORY_PERIOD", "1y")
+
+    def __post_init__(self) -> None:
+        raw = os.getenv("DAILY_REPORT_TICKERS", "NVDA,MSFT,AAPL,GOOGL,AMZN,META,TSLA,AVGO,AMD,COST,JPM,LLY")
+        object.__setattr__(self, "daily_report_tickers", [ticker.strip().upper() for ticker in raw.split(",") if ticker.strip()])
 
 
 NEWS_FEEDS = {

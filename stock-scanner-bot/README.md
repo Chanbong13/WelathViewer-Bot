@@ -4,9 +4,21 @@ LINE chatbot / web chatbot for scanning stocks from Thai, English, and mixed-lan
 
 Every response includes a disclaimer. The bot does not provide guaranteed financial advice.
 
+## Cloud Architecture
+
+```text
+LINE OA -> Google Cloud Run -> Bot backend -> Google Drive -> NotebookLM
+                         |
+                         +-> Cloud Scheduler -> POST /daily-report
+```
+
+Google Drive is only file storage. The bot runtime is Google Cloud Run, so your personal computer does not need to stay on.
+
 ## Features
 
 - LINE Messaging API webhook at `/line/webhook`
+- Cloud Run LINE webhook at `/webhook`
+- Daily scheduled report endpoint at `/daily-report`
 - Natural-language intent detection for Thai / English / mixed messages
 - Ticker, company name, and sector resolution
 - Stock detail scan
@@ -20,6 +32,8 @@ Every response includes a disclaimer. The bot does not provide guaranteed financ
 - SQLite database by default
 - LINE-safe long-message splitting
 - Optional image card generator module
+- Google Drive service-account upload for generated PDF, Markdown, and CSV reports
+- NotebookLM-optimized Markdown daily report source
 
 ## Project Structure
 
@@ -54,6 +68,17 @@ stock-scanner-bot/
     test_response_generator.py
 ```
 
+## Cloud Run Endpoints
+
+```text
+GET  /health
+POST /webhook
+POST /line/webhook
+POST /daily-report
+```
+
+Use `/webhook` for LINE OA. `/line/webhook` is kept as a backward-compatible alias.
+
 ## Install
 
 ```powershell
@@ -81,6 +106,14 @@ LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 DATABASE_URL=sqlite:///data/stock_scanner.db
 OPENAI_API_KEY=
+GOOGLE_DRIVE_FOLDER_ID=
+GOOGLE_APPLICATION_CREDENTIALS_JSON=
+GOOGLE_SERVICE_ACCOUNT_FILE=
+DAILY_REPORT_TOKEN=
+DAILY_REPORT_TICKERS=NVDA,MSFT,AAPL,GOOGL,AMZN,META,TSLA,AVGO,AMD,COST,JPM,LLY
+NOTEBOOKLM_SOURCE_PREFIX=NotebookLM_Source_Global_Stock_Briefing
+PDF_REPORT_PREFIX=Global_Stock_Briefing
+CSV_REPORT_PREFIX=Global_Stock_Briefing_Data
 APP_HOST=0.0.0.0
 APP_PORT=8000
 DEFAULT_LANGUAGE=th
@@ -89,6 +122,39 @@ PRICE_HISTORY_PERIOD=1y
 ```
 
 The current implementation works with Yahoo Finance via `yfinance` and RSS feeds. Finnhub, Alpha Vantage, Polygon, NewsAPI, and OpenAI keys are reserved for extending data quality and AI summarization.
+
+## Google Drive Service Account Setup
+
+1. In Google Cloud Console, enable Google Drive API.
+2. Create a service account.
+3. Create a JSON key for that service account.
+4. Open the target Google Drive folder.
+5. Share that folder with the service account email, such as:
+
+```text
+stock-bot-uploader@your-project.iam.gserviceaccount.com
+```
+
+6. Copy the Drive folder ID from the folder URL:
+
+```text
+https://drive.google.com/drive/folders/FOLDER_ID_HERE
+```
+
+7. Set environment variables in Cloud Run:
+
+```env
+GOOGLE_DRIVE_FOLDER_ID=FOLDER_ID_HERE
+GOOGLE_APPLICATION_CREDENTIALS_JSON={"type":"service_account",...}
+```
+
+Alternative:
+
+```env
+GOOGLE_SERVICE_ACCOUNT_FILE=/secrets/service-account.json
+```
+
+For Cloud Run, `GOOGLE_APPLICATION_CREDENTIALS_JSON` is usually the simplest route. Store it as a Secret Manager secret when possible, then mount it as an environment variable.
 
 ## Set Up LINE Messaging API
 
@@ -107,10 +173,10 @@ LINE_CHANNEL_SECRET=
 ```
 
 5. Deploy this app to an HTTPS URL.
-6. Set webhook URL:
+6. Set webhook URL after Cloud Run deploy:
 
 ```text
-https://your-domain.com/line/webhook
+https://YOUR-CLOUD-RUN-URL/webhook
 ```
 
 7. Enable `Use webhook`.
@@ -142,53 +208,102 @@ https://your-ngrok-domain.ngrok-free.app/line/webhook
 
 ## Deploy
 
-Good deployment targets:
+This project is configured for Google Cloud Run with `Dockerfile`.
 
-- Render
-- Railway
-- Fly.io
-- VPS with nginx + systemd
-- Google Cloud Run
+### Deploy To Google Cloud Run
 
-Example production command:
+Set variables:
 
 ```bash
-gunicorn main:app --bind 0.0.0.0:$PORT
+export PROJECT_ID="your-gcp-project-id"
+export REGION="asia-southeast1"
+export SERVICE_NAME="stock-scanner-bot"
 ```
 
-If using Render/Railway, set the environment variables in the hosting dashboard and set the start command to the command above.
+Enable required APIs:
 
-### Render Blueprint
+```bash
+gcloud services enable run.googleapis.com
+gcloud services enable cloudbuild.googleapis.com
+gcloud services enable drive.googleapis.com
+gcloud services enable cloudscheduler.googleapis.com
+```
 
-This repo includes:
+Deploy from the `stock-scanner-bot` directory:
+
+```bash
+cd stock-scanner-bot
+gcloud run deploy "$SERVICE_NAME" \
+  --source . \
+  --region "$REGION" \
+  --allow-unauthenticated \
+  --set-env-vars DEFAULT_LANGUAGE=th,MAX_NEWS_ITEMS=5,PRICE_HISTORY_PERIOD=1y,DATABASE_URL=sqlite:////tmp/stock_scanner.db,GOOGLE_DRIVE_FOLDER_ID=YOUR_FOLDER_ID,DAILY_REPORT_TICKERS=NVDA,MSFT,AAPL,GOOGL,AMZN,META,TSLA,AVGO,AMD,COST,JPM,LLY \
+  --set-secrets LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,GOOGLE_APPLICATION_CREDENTIALS_JSON=GOOGLE_APPLICATION_CREDENTIALS_JSON:latest,DAILY_REPORT_TOKEN=DAILY_REPORT_TOKEN:latest
+```
+
+Notes:
+
+- `--allow-unauthenticated` is needed because LINE must reach `/webhook`.
+- Keep `DAILY_REPORT_TOKEN` secret. Cloud Scheduler sends it to `/daily-report`.
+- For durable user watchlists, replace SQLite with Cloud SQL or Firestore later. SQLite in `/tmp` is ephemeral on Cloud Run.
+
+Get service URL:
+
+```bash
+gcloud run services describe "$SERVICE_NAME" \
+  --region "$REGION" \
+  --format "value(status.url)"
+```
+
+Set LINE webhook:
 
 ```text
-Procfile
-runtime.txt
-render.yaml
+https://YOUR-CLOUD-RUN-URL/webhook
 ```
 
-Render setup:
+### Cloud Scheduler Daily Report
 
-1. Push this repository to GitHub.
-2. In Render, choose `New` -> `Blueprint`.
-3. Select the repository.
-4. Render will read `stock-scanner-bot/render.yaml`.
-5. Add secret environment variables:
+Create a scheduler service account:
 
-```env
-LINE_CHANNEL_ACCESS_TOKEN=
-LINE_CHANNEL_SECRET=
+```bash
+gcloud iam service-accounts create stock-report-scheduler \
+  --display-name "Stock report scheduler"
 ```
 
-6. Deploy.
-7. Use this webhook URL in LINE Developers:
+Grant Cloud Run invoker:
+
+```bash
+gcloud run services add-iam-policy-binding "$SERVICE_NAME" \
+  --region "$REGION" \
+  --member "serviceAccount:stock-report-scheduler@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role "roles/run.invoker"
+```
+
+Create a daily 7 AM Bangkok job:
+
+```bash
+SERVICE_URL="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format 'value(status.url)')"
+
+gcloud scheduler jobs create http daily-stock-report \
+  --location "$REGION" \
+  --schedule "0 7 * * *" \
+  --time-zone "Asia/Bangkok" \
+  --uri "$SERVICE_URL/daily-report" \
+  --http-method POST \
+  --headers "Content-Type=application/json,X-Daily-Report-Token=YOUR_DAILY_REPORT_TOKEN" \
+  --message-body "{}" \
+  --oidc-service-account-email "stock-report-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
+```
+
+The `/daily-report` endpoint generates:
 
 ```text
-https://stock-scanner-bot.onrender.com/line/webhook
+Global_Stock_Briefing_YYYY-MM-DD.pdf
+NotebookLM_Source_Global_Stock_Briefing_YYYY-MM-DD.md
+Global_Stock_Briefing_Data_YYYY-MM-DD.csv
 ```
 
-Replace the domain with the actual Render service URL.
+It uploads all three files to Google Drive. The Markdown is structured for NotebookLM with ticker-level headings, sector labels, source IDs, and a final source index.
 
 ## Supported Messages
 

@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.yfinance-cache/
+bin/
+data/*.db
+data/*.log
+data/*.pid
+tests/
